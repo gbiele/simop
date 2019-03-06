@@ -126,7 +126,7 @@ REDNEGAF =  NEGAF_AFTERDRUG - NEGAFF
 
 And we plot to see if we get the expected results:
 
-```{r plotData}
+```{r plotDatac}
 dt = data.table(TSST,OPIOID,NEGAFF,REDNEGAF)
 dt[,OPIOID := factor(OPIOID)]
 dt[,TSST := factor(TSST)]
@@ -260,7 +260,7 @@ DRUGWANTING = REDNEGAF * effect_of_affect_improvement_on_wanting + rnorm(N)
 
 Now we can plot the expected effects again:
 
-```{r plotData}
+```{r plotDatab}
 dtc = data.table(TSST,OPIOID,AFFECT,DRUGWANTING)
 dtc[,OPIOID := factor(OPIOID)]
 dtc[,TSST := factor(TSST)]
