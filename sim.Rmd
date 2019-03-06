@@ -26,23 +26,21 @@ Trough a _TSST_ manipulation we can induce _negative affect_. A drug manipulatio
 
 A visual representation of this model looks as follows:
 
-```{r cars}
-DGP = dagitty(
-"dag {
-  TSST    [pos=\"0,0\"]
-  NEGAFF  [pos=\"1,0\"]
-  OPIOID  [pos=\"1.5,1\"]
-  REDNEGAF [pos=\"2,0\"]
-  DRUGWANTING [pos=\"3,1\"]
-  DRUGLIKING  [pos=\"3,-1\"]
-  TSST -> NEGAFF
-  NEGAFF -> REDNEGAF
-  OPIOID -> REDNEGAF
-  REDNEGAF -> DRUGWANTING
-  REDNEGAF -> DRUGLIKING
-}")
-exposures(DGP) = c("TSST","OPIOID")
-outcomes(DGP) = c("REDNEGAF","WANTING","LIKING")
+```{r DBP}
+DGP = dagitty("
+TSST        E @0,0
+NEGAFF      1 @1,0
+OPIOID      E @1.5,1
+REDNEGAF    1 @2,0
+DRUGWANTING O @3,1
+DRUGLIKING  O @3,-1
+
+TSST      NEGAFF
+NEGAFF    REDNEGAF
+OPIOID    REDNEGAF
+REDNEGAF  DRUGWANTING DRUGLIKING
+")
+
 plot(DGP)
 ```
 
@@ -54,13 +52,13 @@ For now, we'll work under the assumption that opioids primarily reduce negative 
 
 Now lets just walk from right to left through the model. We start with two groups, one which does get the TSST intervention and one which does not get it.
 
-```{r}
+```{r TSST}
 N = 1000
 TSST = sort(rep(c(0,1),N/2))
 ```
 
 Next, we model negative affect as an effect of TSST plus som noise:
-```{r}
+```{r simNEGAFF}
 eTSST = 2.5
 baseNEGAFF = -2.5
 sdNEGAFF = .5
@@ -72,7 +70,7 @@ NEGAFF = inv.logit(TSST * eTSST +
 
 ```
 
-```{r, echo = F}
+```{r plotNEGAFF, echo = F}
 h = hist(NEGAFF,plot = F)
 hist(NEGAFF[TSST == 1],
      breaks = h$breaks,
@@ -93,7 +91,7 @@ The `ìnv.logit` function is the same inverse logit that is also used in logisti
 
 We can get an approximation of the expected effect sizes by calculating Cohen's h from the difference of expexted proportions of the maximal negative affect between the TSST and no TSST groups:
 
-```{r}
+```{r esNEGAFF}
 mTSST = inv.logit(baseNEGAFF)
 mNOTSST = inv.logit(baseNEGAFF + eTSST)
 Cohens_h = diff(
@@ -107,7 +105,7 @@ The issue with this effect size measure is that it does not take into account th
 
 Next we define the opioid intervention, such that participants with and without TSST intervention receive opioids
 
-```{r}
+```{r designOPIOID}
 OPIOID = rep(sort(rep(c(0,1),
                       N/4)),
              2)
@@ -121,14 +119,14 @@ axis(3, at = c(0,1),
 ```
 
 Now we can define reduction in negative affect as negative affect after the effect of drug minus negative affect before drug. We do some mathematical tricks to stasy in the bounds and also add random error:
-```{r}
+```{r simREDNEGAF}
 NEGAF_AFTERDRUG = inv.logit(logit(NEGAFF) - OPIOID + rnorm(N, sd = .5))
 REDNEGAF =  NEGAF_AFTERDRUG - NEGAFF
 ```
 
 And we plot to see if we get the expected results:
 
-```{r}
+```{r plotData}
 dt = data.table(TSST,OPIOID,NEGAFF,REDNEGAF)
 dt[,OPIOID := factor(OPIOID)]
 dt[,TSST := factor(TSST)]
@@ -141,15 +139,16 @@ ggplot(tbl,aes(x = OPIOID, y = mREDNEGAF, group = TSST, color = TSST)) + geom_li
 
 Finally, we simulate drug wanting and liking:
 
-```{r}
+```{r simDRUGWANTING}
 DRUGWANTING = REDNEGAF
+DRUGWANTING = REDNEGAF*.5
 ```
 
 
 
 Now we can repeat this process 1000 times to see a distribution of effects:
 
-```{r}
+```{r simulation}
 K = 1000
 OPIOID = rep(sort(rep(c(0,1),
                       N/4)),
@@ -171,7 +170,7 @@ for (k in 1:K) {
 
 delta = reduction[,"TSST"]-reduction[,"no TSST"]
 hist(delta, 
-     main = paste("% correct sign of effect:",round(mean(delta > 0),digits = 2)))
+     main = paste("% correct sign of effect:",round(mean(delta > 0)*100)))
 abline(v = 0, col = "red")
 ```
 
@@ -183,4 +182,91 @@ There are several things we can do.
 * gather more information about the effect size of the TSST and opioid manipulation
 
 Once this is done, we can extend the simulations to include uncertainty about effect sizes and downstream effects, like the effect on wanting vs. liking.
+
+
+## Simulating data (b)
+
+Based on out discussion over lunch, here is an alternative model that does not assume that negative affect is bound at zero. as a first approximation, we simply assume that "affect" is a unidimensional varibale with a negative and positive pole.
+
+```{r DGPb}
+DGPd = dagitty("
+TSST        E @0,0
+AFFECT      1 @1,0
+OPIOID      E @1.5,-1
+REDNEGAF    1 @2,0
+DRUGWANTING O @3,1
+DRUGLIKING  O @3,-1
+
+TSST      AFFECT
+AFFECT    REDNEGAF DRUGWANTING
+OPIOID    REDNEGAF
+REDNEGAF  DRUGWANTING DRUGLIKING
+")
+
+plot(DGPd)
+```
+
+
+Simulating the effect of TSST on affect is now easier:
+
+```{r simAFFECT}
+eTSST = Cohens_h
+AFFECT = TSST * eTSST + rnorm(N)
+
+h = hist(AFFECT,plot = F)
+hist(AFFECT[TSST == 1],
+     breaks = h$breaks,
+     xlim = range(h$breaks),
+     border = NA,
+     col = adjustcolor("red",alpha = .5),
+     main = "Affect by TSST",
+     xlab = "Affect")
+hist(AFFECT[TSST == 0],
+     breaks = h$breaks,
+     xlim = range(h$breaks),
+     border = NA,
+     col = adjustcolor("blue",alpha = .5),
+     add = T)
+```
+
+Because the AFFECT variable is also not bound to be below zero, it is also easiert to model the effect of opioids.
+
+```{r simREDNEGAFb}
+AFFECT_AFTERDRUG = AFFECT + OPIOID + rnorm(N)
+REDNEGAF =  AFFECT_AFTERDRUG - NEGAFF
+```
+
+And we plot the data again to see if we get the expected results:
+
+```{r plotData}
+dtb = data.table(TSST,OPIOID,AFFECT,REDNEGAF)
+dtb[,OPIOID := factor(OPIOID)]
+dtb[,TSST := factor(TSST)]
+tbl = dtb[,list(mREDNEGAF = mean(REDNEGAF), mAFFECT = mean(AFFECT)), by = c("TSST","OPIOID")]
+kable(tbl, digits = 2)
+
+ggplot(tbl,aes(x = OPIOID, y = mREDNEGAF, group = TSST, color = TSST)) + geom_line()
+```
+
+
+Obviously, opioids now changes affect to the same degree, independent of the TSST condition. If we still want to see an effect on wanting, we have to make WANTING dependent on AFFECT prior to opioids. If we apply the inverse logit function to the affect variable multiplies with 1, we get a new variable that is between 0 and 1, so that people with strong negative (positice) affect had values close to 1 (0). We can use this new variable to modulate the effect of reduction in negative affect (or imporvment of affect) on WANTIG.
+
+```{r}
+effect_of_affect_improvement_on_wanting = inv.logit(-AFFECT*5-5)
+plot(AFFECT, effect_of_affect_improvement_on_wanting, ylab = "effect of improvement of affect on wanting")
+DRUGWANTING = REDNEGAF * effect_of_affect_improvement_on_wanting + rnorm(N)
+
+```
+
+Now we can plot the expected effects again:
+
+```{r plotData}
+dtc = data.table(TSST,OPIOID,AFFECT,DRUGWANTING)
+dtc[,OPIOID := factor(OPIOID)]
+dtc[,TSST := factor(TSST)]
+tbl = dtc[,list(mDRUGWANTING = mean(DRUGWANTING), mAFFECT = mean(AFFECT)), by = c("TSST","OPIOID")]
+kable(tbl, digits = 2)
+
+ggplot(tbl,aes(x = OPIOID, y = mDRUGWANTING, group = TSST, color = TSST)) + geom_line()
+```
 
