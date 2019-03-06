@@ -14,7 +14,6 @@ library(ggplot2)
 
 ## The data generating model
 
-
 When we trying to estimate effects, it makes snese to think about the data generating model. Differently than simply assumeing an effect size for specific statistical tests, this implies formulating how we think the data were are planning to collect come about. This means more specifically to think about 
 
 * observed (and unobserved variables)
@@ -33,17 +32,17 @@ DGP = dagitty(
   TSST    [pos=\"0,0\"]
   NEGAFF  [pos=\"1,0\"]
   OPIOID  [pos=\"1.5,1\"]
-  REDNA   [pos=\"2,0\"]
-  WANTING [pos=\"3,1\"]
-  LIKING  [pos=\"3,-1\"]
+  REDNEGAF [pos=\"2,0\"]
+  DRUGWANTING [pos=\"3,1\"]
+  DRUGLIKING  [pos=\"3,-1\"]
   TSST -> NEGAFF
-  NEGAFF -> REDNA
-  OPIOID -> REDNA
-  REDNA -> WANTING
-  REDNA -> LIKING
+  NEGAFF -> REDNEGAF
+  OPIOID -> REDNEGAF
+  REDNEGAF -> DRUGWANTING
+  REDNEGAF -> DRUGLIKING
 }")
 exposures(DGP) = c("TSST","OPIOID")
-outcomes(DGP) = c("REDNA","WANTING","LIKING")
+outcomes(DGP) = c("REDNEGAF","WANTING","LIKING")
 plot(DGP)
 ```
 
@@ -56,20 +55,32 @@ For now, we'll work under the assumption that opioids primarily reduce negative 
 Now lets just walk from right to left through the model. We start with two groups, one which does get the TSST intervention and one which does not get it.
 
 ```{r}
-N = 100
+N = 1000
 TSST = sort(rep(c(0,1),N/2))
 ```
 
 Next, we model negative affect as an effect of TSST plus som noise:
 ```{r}
-NEGAFF = inv.logit(TSST*3+rnorm(N, mean = -2))
+eTSST = 2.5
+baseNEGAFF = -2.5
+sdNEGAFF = .5
+
+NEGAFF = inv.logit(TSST * eTSST +
+                   rnorm(N,
+                         mean = baseNEGAFF,
+                         sd = sdNEGAFF))
+
+```
+
+```{r, echo = F}
 h = hist(NEGAFF,plot = F)
 hist(NEGAFF[TSST == 1],
      breaks = h$breaks,
      xlim = range(h$breaks),
      border = NA,
      col = adjustcolor("red",alpha = .5),
-     main = "Negative affect")
+     main = "Negative affect by TSST",
+     xlab = "Negative affect")
 hist(NEGAFF[TSST == 0],
      breaks = h$breaks,
      xlim = range(h$breaks),
@@ -80,6 +91,19 @@ hist(NEGAFF[TSST == 0],
 
 The `ìnv.logit` function is the same inverse logit that is also used in logistic regressions. we use this function to get from uncontrained normally distributed values to ratings of negative affect that are bound between zero and a maximum value. 
 
+We can get an approximation of the expected effect sizes by calculating Cohen's h from the difference of expexted proportions of the maximal negative affect between the TSST and no TSST groups:
+
+```{r}
+mTSST = inv.logit(baseNEGAFF)
+mNOTSST = inv.logit(baseNEGAFF + eTSST)
+Cohens_h = diff(
+2 * asin(
+  sqrt(c(mNOTSST,mTSST))
+  )
+)
+sprintf("Cohen´s h = %.1f",Cohens_h)
+```
+The issue with this effect size measure is that it does not take into account the error variance. I'll have to look into this again later. One possibility is to calculate mean and variance of the two beta distributions for the TSST conditions and pluf these into the formula for Cohen's d.
 
 Next we define the opioid intervention, such that participants with and without TSST intervention receive opioids
 
@@ -96,23 +120,31 @@ axis(3, at = c(0,1),
      cex = 2)
 ```
 
-
-Now we can define reduction in TSST as an effect of initial negative affect plus effect of the opioid intervention (plus some random error):
+Now we can define reduction in negative affect as negative affect after the effect of drug minus negative affect before drug. We do some mathematical tricks to stasy in the bounds and also add random error:
 ```{r}
-REDNA = NEGAFF - inv.logit(logit(NEGAFF) - OPIOID + rnorm(N))
+NEGAF_AFTERDRUG = inv.logit(logit(NEGAFF) - OPIOID + rnorm(N, sd = .5))
+REDNEGAF =  NEGAF_AFTERDRUG - NEGAFF
 ```
 
 And we plot to see if we get the expected results:
 
 ```{r}
-dt = data.table(TSST,OPIOID,NEGAFF,REDNA)
+dt = data.table(TSST,OPIOID,NEGAFF,REDNEGAF)
 dt[,OPIOID := factor(OPIOID)]
 dt[,TSST := factor(TSST)]
-tbl = dt[,list(mREDNA = mean(REDNA), mNEGAFF = mean(NEGAFF)), by = c("TSST","OPIOID")]
+tbl = dt[,list(mREDNEGAF = mean(REDNEGAF), mNEGAFF = mean(NEGAFF)), by = c("TSST","OPIOID")]
 kable(tbl, digits = 2)
 
-ggplot(tbl,aes(x = OPIOID, y = mREDNA, group = TSST, color = TSST)) + geom_line()
+ggplot(tbl,aes(x = OPIOID, y = mREDNEGAF, group = TSST, color = TSST)) + geom_line()
 ```
+
+
+Finally, we simulate drug wanting and liking:
+
+```{r}
+DRUGWANTING = REDNEGAF
+```
+
 
 
 Now we can repeat this process 1000 times to see a distribution of effects:
@@ -128,20 +160,19 @@ reduction = matrix(NA,ncol = 2, nrow = K)
 colnames(reduction) = c("no TSST","TSST")
 for (k in 1:K) {
   NEGAFF = inv.logit(TSST*3+rnorm(N, mean = -2))
-  REDNA = NEGAFF - inv.logit(logit(NEGAFF) - OPIOID + rnorm(N))
-  dt = data.table(TSST,OPIOID,NEGAFF,REDNA)
+  REDNEGAF = NEGAFF - inv.logit(logit(NEGAFF) - OPIOID + rnorm(N))
+  dt = data.table(TSST,OPIOID,NEGAFF,REDNEGAF)
   dt[,OPIOID := factor(OPIOID)]
   dt[,TSST := factor(TSST)]
-  tbl = dt[,list(mREDNA = mean(REDNA), mNEGAFF = mean(NEGAFF)), by = c("TSST","OPIOID")]
+  tbl = dt[,list(mREDNEGAF = mean(REDNEGAF), mNEGAFF = mean(NEGAFF)), by = c("TSST","OPIOID")]
   
-  reduction[k,] = tbl[,diff(mREDNA), by = "TSST"][["V1"]]
+  reduction[k,] = tbl[,diff(mREDNEGAF), by = "TSST"][["V1"]]
 }
 
 delta = reduction[,"TSST"]-reduction[,"no TSST"]
 hist(delta, 
      main = paste("% correct sign of effect:",round(mean(delta > 0),digits = 2)))
 abline(v = 0, col = "red")
-
 ```
 
 
